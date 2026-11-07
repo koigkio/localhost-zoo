@@ -24,7 +24,9 @@
   header { padding: 28px 24px 8px; max-width: 1200px; margin: 0 auto; }
   h1 { margin: 0; font-size: 26px; letter-spacing: -.02em; display: flex; align-items: center; gap: 10px; }
   h1 .host { font-size: 14px; font-weight: 500; color: var(--muted); background: var(--chip); padding: 3px 10px; border-radius: 99px; }
-  .sub { color: var(--muted); margin: 4px 0 0; }
+  .sub { color: var(--muted); margin: 4px 0 0; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+  .chip { font-size: 12px; background: var(--chip); padding: 2px 9px; border-radius: 99px; }
+  .chip[hidden] { display: none; }
   .bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 16px 24px; max-width: 1200px; margin: 0 auto; }
   input[type=search] { flex: 1 1 240px; min-width: 0; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--ink); font: inherit; }
   input[type=search]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
@@ -44,6 +46,12 @@
   .badges { display: flex; flex-wrap: wrap; gap: 6px; }
   .badge { font-size: 12px; padding: 2px 8px; border-radius: 99px; background: var(--chip); color: var(--muted); }
   .badge.warn { background: var(--warn-bg); color: var(--warn); }
+  .badge.danger { background: var(--danger-bg); color: var(--danger); font-weight: 600; }
+  .card.danger { border-color: var(--danger); }
+  .banner { max-width: 1152px; margin: 12px auto 0; padding: 12px 16px; border-radius: 12px; background: var(--danger-bg); color: var(--danger); font-size: 14px; }
+  .banner .hit { font-family: var(--mono); font-weight: 600; }
+  .banner .why { margin-top: 4px; opacity: .85; font-size: 13px; }
+  .wrap-banner { padding: 0 24px; }
   .ports { display: flex; flex-wrap: wrap; gap: 6px; }
   .port { font: 600 14px var(--mono); padding: 4px 10px; border-radius: 8px; background: var(--chip); color: var(--ink); text-decoration: none; display: inline-flex; gap: 6px; align-items: center; }
   a.port:hover { background: var(--accent); color: var(--accent-ink); }
@@ -67,7 +75,7 @@
   .gone { animation: gone .5s forwards; }
   @keyframes gone { to { opacity: 0; transform: scale(.96); } }
   @media (max-width: 420px) {
-    header, .bar, main { padding-left: 16px; padding-right: 16px; }
+    header, .bar, main, .wrap-banner { padding-left: 16px; padding-right: 16px; }
     main { grid-template-columns: 1fr; }
   }
 </style>
@@ -75,8 +83,9 @@
 <body>
 <header>
   <h1>🦝 localhost zoo <span class="host" id="host">…</span></h1>
-  <p class="sub" id="summary">Rounding up the animals…</p>
+  <p class="sub"><span id="summary">Rounding up the animals…</span> <span class="chip" id="net" hidden></span></p>
 </header>
+<div class="wrap-banner"><div class="banner" id="banner" role="alert" hidden></div></div>
 <div class="bar">
   <input type="search" id="q" placeholder="Filter by port, project, command…  ( / )" autocomplete="off">
   <label class="toggle"><input type="checkbox" id="sys"> show system</label>
@@ -99,7 +108,7 @@ const ANIMALS = {
   node: '🦖', deno: '🦕', bun: '🐰', python: '🐍', go: '🐹', rust: '🦀', ruby: '🐞',
   php: '🐘', java: '🦧', elixir: '🦄',
 };
-const animalFor = (e) => ANIMALS[e.framework] || ANIMALS[e.project?.lang] || (e.kind === 'system' ? '🦉' : '🦝');
+const animalFor = (e) => ANIMALS[e.framework] || ANIMALS[e.project?.lang] || (e.container ? '🐳' : e.kind === 'system' ? '🦉' : '🦝');
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const shortPath = (p) => p ? p.replace(/^\/(Users|home)\/[^/]+/, '~') : '';
@@ -132,6 +141,7 @@ async function load() {
 function matches(e, q) {
   if (!q) return true;
   const hay = [e.ports.join(' '), e.command, e.cmdline, e.cwd, e.project?.name, e.framework, e.pid, e.user,
+    e.container?.name, e.container?.image, e.exposure?.level,
     ...Object.values(e.http || {}).map((h) => h.title)].join(' ').toLowerCase();
   return q.toLowerCase().split(/\s+/).every((w) => hay.includes(w));
 }
@@ -148,6 +158,22 @@ function render() {
     : `No dev servers running · ${d.entries.length} system listener${d.entries.length === 1 ? '' : 's'}`;
   document.title = dev.length ? `(${dev.length}) localhost zoo` : 'localhost zoo';
 
+  // Network chip: public IP + firewall, so "open to the internet" has context.
+  const net = d.network || {};
+  const fw = net.firewall ? `${net.firewall.name} ${net.firewall.active ? 'active' : 'inactive'}` : 'no firewall detected';
+  $('#net').textContent = net.publicIps?.length ? `public IP ${net.publicIps[0]} · ${fw}` : 'private network';
+  $('#net').hidden = false;
+
+  // Loud banner for dev servers anyone on the internet can reach.
+  const open = dev.filter((e) => e.exposure?.level === 'internet');
+  $('#banner').hidden = !open.length;
+  $('#banner').innerHTML = open.length
+    ? `<b>⚠️ Open to the internet:</b> ` + open.map((e) => {
+        const ports = e.ports.filter((p) => e.exposure.ports[p] === 'internet').map((p) => ':' + p).join(' ');
+        return `<span class="hit" title="${esc(e.exposure.reason)}">${esc(e.container?.name || e.project?.name || e.command)} ${ports}</span>`;
+      }).join(' · ') + `<div class="why">${esc([...new Set(open.map((e) => e.exposure.reason))].join(' · '))}</div>`
+    : '';
+
   const grid = $('#grid');
   if (!shown.length) {
     grid.innerHTML = `<div class="empty"><div class="big">🦗</div><p>${q ? 'No animal matches “' + esc(q) + '”.' : 'The zoo is quiet. Start a dev server and it will show up here.'}</p></div>`;
@@ -155,7 +181,8 @@ function render() {
   }
   const linkHost = location.hostname.includes(':') ? `[${location.hostname}]` : location.hostname;
   grid.innerHTML = shown.map((e) => {
-    const name = e.project?.name || e.command || 'pid ' + e.pid;
+    const name = e.container?.name || e.project?.name || e.command || 'pid ' + e.pid;
+    const lvl = e.exposure?.level;
     const titles = Object.values(e.http || {}).map((h) => h.title).filter(Boolean);
     const ports = e.ports.map((p) => {
       const h = e.http?.[p];
@@ -166,47 +193,53 @@ function render() {
     const badges = [
       e.framework && `<span class="badge">${esc(e.framework)}</span>`,
       e.project?.lang && !e.framework && `<span class="badge">${esc(e.project.lang)}</span>`,
-      e.exposed && `<span class="badge warn" title="Listening on all interfaces — reachable from your network">exposed to network</span>`,
+      e.container && `<span class="badge" title="${esc(e.container.status)}">🐳 ${esc(e.container.image)}</span>`,
+      lvl === 'internet' && `<span class="badge danger" title="${esc(e.exposure.reason)}">🌍 open to the internet</span>`,
+      lvl === 'network' && `<span class="badge warn" title="${esc(e.exposure.reason)}">exposed to network</span>`,
+      lvl === 'firewalled' && `<span class="badge" title="${esc(e.exposure.reason)}">🧱 firewalled</span>`,
       e.self && `<span class="badge">this dashboard</span>`,
       e.mine === false && `<span class="badge" title="Owned by another user">${esc(e.user)}</span>`,
     ].filter(Boolean).join('');
-    const armed = state.armed === e.pid;
-    return `<article class="card ${e.kind}" data-pid="${e.pid}">
+    const armed = state.armed === e.id;
+    const who = e.container
+      ? `container ${e.container.id.slice(0, 7)}${e.project ? ' · ' + esc(e.project.name) + (e.container.service ? '/' + esc(e.container.service) : '') : ''}`
+      : `pid ${e.pid}`;
+    return `<article class="card ${e.kind}${lvl === 'internet' ? ' danger' : ''}" data-id="${esc(e.id)}">
       <div class="top">
         <div class="animal" aria-hidden="true">${animalFor(e)}</div>
         <div style="min-width:0">
           <div class="name">${esc(name)}</div>
-          <div class="meta">pid ${e.pid}${e.uptimeSec != null ? ' · up ' + ago(e.uptimeSec) : ''}${e.rssKb != null ? ' · ' + mem(e.rssKb) : ''}</div>
+          <div class="meta">${who}${e.uptimeSec != null ? ' · up ' + ago(e.uptimeSec) : ''}${e.rssKb != null ? ' · ' + mem(e.rssKb) : ''}</div>
         </div>
       </div>
       ${badges ? `<div class="badges">${badges}</div>` : ''}
       <div class="ports">${ports}</div>
       ${titles.length ? `<div class="title">“${esc(titles[0])}”</div>` : ''}
-      <div class="cmd${state.open.has(e.pid) ? ' open' : ''}" data-pid="${e.pid}" title="Click to expand"><span>${esc(e.cmdline)}</span></div>
+      <div class="cmd${state.open.has(e.id) ? ' open' : ''}" data-id="${esc(e.id)}" title="Click to expand"><span>${esc(e.cmdline)}</span></div>
       ${e.cwd && e.cwd !== '/' ? `<div class="cwd">📁 ${esc(shortPath(e.cwd))}</div>` : ''}
       <div class="actions">
         <button class="copy" data-copy="${esc(e.cwd || '')}" ${e.cwd ? '' : 'disabled'}>Copy path</button>
         <span class="spacer"></span>
-        <button class="kill ${armed ? 'armed' : ''}" data-pid="${e.pid}" ${e.self ? 'disabled' : ''}
-          title="Click twice to stop (SIGTERM). Shift-click to force (SIGKILL).">${armed ? 'Really stop?' : 'Stop'}</button>
+        <button class="kill ${armed ? 'armed' : ''}" data-id="${esc(e.id)}" ${e.self ? 'disabled' : ''}
+          title="${e.container ? 'Click twice for docker stop. Shift-click for docker kill.' : 'Click twice to stop (SIGTERM). Shift-click to force (SIGKILL).'}">${armed ? 'Really stop?' : 'Stop'}</button>
       </div>
     </article>`;
   }).join('');
 }
 
-async function kill(pid, force, card) {
+async function kill(id, force, card) {
   const btn = card.querySelector('.kill');
   btn.disabled = true; btn.textContent = 'Stopping…';
   try {
     const r = await fetch('/api/kill', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-zoo-token': TOKEN },
-      body: JSON.stringify({ pid, force }),
+      body: JSON.stringify({ id, force }),
     });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error);
-    if (j.exited) { card.classList.add('gone'); toast(`Released pid ${pid} back into the wild 🌿`); }
-    else toast(`Sent ${j.signal}, but pid ${pid} is still running. Shift-click Stop to force it.`, true);
+    if (j.exited) { card.classList.add('gone'); toast(`Released ${j.label} back into the wild 🌿`); }
+    else toast(`Sent ${j.how}, but ${j.label} is still running. Shift-click Stop to force it.`, true);
   } catch (e) {
     toast(e.message, true);
   } finally {
@@ -219,8 +252,8 @@ $('#grid').addEventListener('click', (ev) => {
   const cmd = ev.target.closest('.cmd');
   if (cmd) {
     if (getSelection().toString()) return; // selecting text, not toggling
-    const pid = Number(cmd.dataset.pid);
-    state.open.has(pid) ? state.open.delete(pid) : state.open.add(pid);
+    const id = cmd.dataset.id;
+    state.open.has(id) ? state.open.delete(id) : state.open.add(id);
     return cmd.classList.toggle('open');
   }
   const copy = ev.target.closest('.copy');
@@ -230,9 +263,9 @@ $('#grid').addEventListener('click', (ev) => {
   }
   const k = ev.target.closest('.kill');
   if (!k) return;
-  const pid = Number(k.dataset.pid);
-  if (ev.shiftKey || state.armed === pid) return kill(pid, ev.shiftKey, k.closest('.card'));
-  state.armed = pid; render();
+  const id = k.dataset.id;
+  if (ev.shiftKey || state.armed === id) return kill(id, ev.shiftKey, k.closest('.card'));
+  state.armed = id; render();
   clearTimeout(kill.t); kill.t = setTimeout(() => { state.armed = null; render(); }, 3000);
 });
 

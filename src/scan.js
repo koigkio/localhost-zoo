@@ -7,6 +7,8 @@ import { readFile, readlink, access } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import path from 'node:path';
 import os from 'node:os';
+import { listContainers, isDockerProcess, parseDockerUptime } from './docker.js';
+import { networkInfo, classify } from './exposure.js';
 
 const run = promisify(execFile);
 
@@ -188,12 +190,61 @@ async function probe(port, address) {
   }
 }
 
+const probeAll = (bindings) => {
+  const ports = [...new Set(bindings.map((b) => b.port))].sort((a, b) => a - b);
+  return Promise.all(ports.slice(0, 4).map(async (p) => [p, await probe(p, bindings.find((x) => x.port === p).address)]))
+    .then(Object.fromEntries);
+};
+
+/** Fold Docker listeners into one entry per container (name, image, compose project). */
+function mergeContainers(entries, containers) {
+  const out = [];
+  const dockerish = entries.filter((e) => isDockerProcess(e.command, e.cmdline));
+  for (const c of containers) {
+    if (!c.bindings.length) continue;
+    const proxy = dockerish.find((e) => e.bindings.some((b) => c.bindings.some((cb) => cb.port === b.port)));
+    for (const e of dockerish) e.bindings = e.bindings.filter((b) => !c.bindings.some((cb) => cb.port === b.port));
+    const framework = detectFramework(c.image) || 'Docker';
+    out.push({
+      id: `docker:${c.id}`,
+      pid: proxy?.pid ?? null,
+      command: 'docker',
+      user: proxy?.user || 'root',
+      kind: 'dev',
+      bindings: c.bindings.map(({ address, port }) => ({ address, port })),
+      cmdline: `${c.image}${c.command ? '  ' + c.command : ''}`,
+      ppid: null,
+      rssKb: null,
+      uptimeSec: parseDockerUptime(c.status),
+      cwd: c.compose?.workingDir || null,
+      project: c.compose ? { root: c.compose.workingDir, name: c.compose.project, lang: null } : null,
+      framework,
+      container: { id: c.id, name: c.name, image: c.image, status: c.status, service: c.compose?.service || null },
+      self: false,
+      mine: true,
+    });
+  }
+  return [...entries.filter((e) => e.bindings.length), ...out];
+}
+
+/** Find an entry by id ("pid:123", "docker:abc"), bare pid, or port. */
+export function findEntry(entries, { id, pid, port } = {}) {
+  if (id != null) return entries.find((e) => e.id === String(id)) || null;
+  if (pid != null) return entries.find((e) => e.pid === Number(pid) && !e.container) || null;
+  if (port != null) return entries.find((e) => e.ports.includes(Number(port))) || null;
+  return null;
+}
+
 /**
- * Main entry: one entry per process, with all its ports.
- * @param {{ probe?: boolean, self?: number }} opts
+ * Main entry: one entry per process (or container), with all its ports.
+ * @param {{ probe?: boolean, self?: number, docker?: boolean }} opts
  */
-export async function scan({ probe: doProbe = true, self = process.pid } = {}) {
-  const listeners = await listListeners();
+export async function scan({ probe: doProbe = true, self = process.pid, docker = true } = {}) {
+  const [listeners, containers, net] = await Promise.all([
+    listListeners(),
+    docker ? listContainers() : null,
+    networkInfo(),
+  ]);
   const byPid = new Map();
   const unknown = [];
 
@@ -209,28 +260,19 @@ export async function scan({ probe: doProbe = true, self = process.pid } = {}) {
   const pids = [...byPid.keys()];
   const ps = await psInfo(pids);
 
-  const entries = await Promise.all(pids.map(async (pid) => {
+  let entries = await Promise.all(pids.map(async (pid) => {
     const e = byPid.get(pid);
     const info = ps.get(pid) || {};
     const cwd = await cwdOf(pid);
     const project = await findProject(cwd);
-    const ports = [...new Set(e.bindings.map((b) => b.port))].sort((a, b) => a - b);
-    const exposed = e.bindings.some((b) => !['127.0.0.1', '::1', 'localhost'].includes(b.address));
-    const probes = doProbe
-      ? await Promise.all(ports.slice(0, 4).map(async (p) => {
-          const b = e.bindings.find((x) => x.port === p);
-          return [p, await probe(p, b.address)];
-        }))
-      : [];
     const framework = detectFramework(info.cmdline || e.command);
     const owner = e.user || info.user || null;
     return {
+      id: `pid:${pid}`,
       ...e,
       // "dev" = something you started from a project; "system" = OS daemons, apps, VPNs…
       kind: project || (framework && !SYSTEM_FRAMEWORKS.has(framework)) ? 'dev' : 'system',
       user: owner,
-      ports,
-      exposed,
       cmdline: info.cmdline || e.command,
       ppid: info.ppid ?? null,
       rssKb: info.rssKb ?? null,
@@ -238,12 +280,34 @@ export async function scan({ probe: doProbe = true, self = process.pid } = {}) {
       cwd,
       project,
       framework,
-      http: Object.fromEntries(probes),
+      container: null,
       self: pid === self,
       mine: owner === os.userInfo().username,
     };
   }));
 
+  if (containers) entries = mergeContainers(entries, containers);
+
+  entries = await Promise.all(entries.map(async (e) => {
+    const ports = [...new Set(e.bindings.map((b) => b.port))].sort((a, b) => a - b);
+    const exposure = classify(e, net);
+    return {
+      ...e,
+      ports,
+      exposed: exposure.level !== 'local',
+      exposure,
+      http: doProbe ? await probeAll(e.bindings) : {},
+    };
+  }));
+
   entries.sort((a, b) => a.ports[0] - b.ports[0]);
-  return { host: os.hostname(), platform: process.platform, scannedAt: Date.now(), entries, unknown };
+  return {
+    host: os.hostname(),
+    platform: process.platform,
+    scannedAt: Date.now(),
+    network: { publicIps: net.publicIps, firewall: net.firewall ? { name: net.firewall.name, active: net.firewall.active } : null },
+    docker: containers !== null,
+    entries,
+    unknown,
+  };
 }

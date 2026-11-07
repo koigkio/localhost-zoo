@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.0 — 2026-11-07
+
+- **`zoo top`**: a live htop-style view in the terminal. Move with arrows or `j`/`k`, stop with `s`/`S`, filter with `/`. Made for SSH sessions.
+- **Docker containers by name.** `docker-proxy` and Docker Desktop listeners turn into `shop-db-1 · postgres:16` with the compose project and folder. Stop runs `docker stop` (`docker kill` with force).
+- **Who can reach a port.** Every port is `local`, `firewalled`, `network` or `INTERNET`, based on public IPs and `ufw` rules. Docker ports published past ufw are flagged. The dashboard shows a red banner, and `zoo list` gets a REACH column.
+- **`zoo mcp`**: an MCP server with `list_servers`, `who_is_on_port`, `stop_server` and `check_exposure`, for Claude Code, Cursor and other agents.
+- `--demo` now works with every command.
+- `zoo kill <port>` stops containers too.
+- Demo GIF in the README.
+
 ## 1.0.0 — 2026-11-07
 
 First public release.

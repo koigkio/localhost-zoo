@@ -5,7 +5,7 @@
 //  * Host header must match an allowed host → blocks DNS-rebinding attacks.
 //  * Every mutating request needs a random per-run token (header), and a same-origin Origin.
 //  * When bound to a non-loopback address, *every* request needs the token.
-//  * Only PIDs from the latest scan can be killed — never arbitrary PIDs, never the zoo itself.
+//  * Only entries from the latest scan can be stopped — never arbitrary PIDs, never the zoo itself.
 
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
@@ -13,7 +13,8 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import os from 'node:os';
-import { scan } from './scan.js';
+import { scan, findEntry } from './scan.js';
+import { stopEntry, entryLabel } from './kill.js';
 import { demoScan, demoKill } from './demo.js';
 
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
@@ -90,27 +91,13 @@ export function createZoo({ host = '127.0.0.1', port = 4321, token = randomBytes
         if (origin && !allowedHosts.has(hostOnly(new URL(origin).host))) return send(res, 403, { error: 'Bad origin' });
 
         const body = await readJson(req);
-        const pid = Number(body.pid);
-        const signal = body.force ? 'SIGKILL' : 'SIGTERM';
-        const entry = lastScan.entries.find((e) => e.pid === pid);
+        // Only entries from the latest scan can be stopped — never an arbitrary PID.
+        const entry = findEntry(lastScan.entries, body.id != null ? { id: body.id } : { pid: body.pid });
         if (!entry) return send(res, 404, { error: 'That process is not in the current scan. Refresh and try again.' });
-        if (entry.self) return send(res, 400, { error: "The zoo keeper can't be released." });
-        if (demo) {
-          demoKill(pid);
-          doScan();
-          return send(res, 200, { ok: true, pid, signal, exited: true, demo: true });
-        }
-
-        try {
-          process.kill(pid, signal);
-        } catch (err) {
-          const msg = err.code === 'EPERM' ? `No permission to stop PID ${pid} (owned by ${entry.user}).`
-            : err.code === 'ESRCH' ? 'Process already exited.' : err.message;
-          return send(res, err.code === 'ESRCH' ? 410 : 403, { error: msg });
-        }
-        const gone = await waitForExit(pid, signal === 'SIGKILL' ? 1500 : 3000);
+        const result = demo ? demoKill(entry) : await stopEntry(entry, { force: !!body.force });
         doScan();
-        return send(res, 200, { ok: true, pid, signal, exited: gone });
+        if (!result.ok) return send(res, result.status || 500, { error: result.error });
+        return send(res, 200, { ...result, id: entry.id, label: entryLabel(entry) });
       }
 
       send(res, 404, { error: 'Not found' });
@@ -135,13 +122,4 @@ function readJson(req) {
     req.on('end', () => { try { resolve(JSON.parse(data || '{}')); } catch { reject(new Error('Bad JSON')); } });
     req.on('error', reject);
   });
-}
-
-async function waitForExit(pid, ms) {
-  const until = Date.now() + ms;
-  while (Date.now() < until) {
-    try { process.kill(pid, 0); } catch { return true; }
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  return false;
 }
