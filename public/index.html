@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>localhost zoo</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦝</text></svg>">
+<style>
+  :root {
+    --bg: #f6f5f1; --panel: #ffffff; --ink: #1d1c1a; --muted: #6d6a63; --line: #e5e2da;
+    --accent: #2f7d4f; --accent-ink: #fff; --warn: #a3620a; --warn-bg: #fdf2dd;
+    --danger: #b3261e; --danger-bg: #fbe9e7; --chip: #efede7; --shadow: 0 1px 2px rgba(0,0,0,.05), 0 4px 16px rgba(0,0,0,.04);
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141413; --panel: #1d1d1b; --ink: #ecebe6; --muted: #9a978f; --line: #2e2d2a;
+      --accent: #5cc285; --accent-ink: #0d2316; --warn: #f0b252; --warn-bg: #3a2c12;
+      --danger: #ff8a80; --danger-bg: #3d1a17; --chip: #2a2927; --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { padding: 28px 24px 8px; max-width: 1200px; margin: 0 auto; }
+  h1 { margin: 0; font-size: 26px; letter-spacing: -.02em; display: flex; align-items: center; gap: 10px; }
+  h1 .host { font-size: 14px; font-weight: 500; color: var(--muted); background: var(--chip); padding: 3px 10px; border-radius: 99px; }
+  .sub { color: var(--muted); margin: 4px 0 0; }
+  .bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 16px 24px; max-width: 1200px; margin: 0 auto; }
+  input[type=search] { flex: 1 1 240px; min-width: 0; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--ink); font: inherit; }
+  input[type=search]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  label.toggle { display: flex; align-items: center; gap: 6px; color: var(--muted); cursor: pointer; user-select: none; }
+  button { font: inherit; cursor: pointer; border-radius: 9px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 7px 12px; }
+  button:hover { border-color: var(--muted); }
+  .live { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+  .live.paused .dot { background: var(--muted); }
+  main { max-width: 1200px; margin: 0 auto; padding: 0 24px 48px; display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .card.system { opacity: .8; }
+  .top { display: flex; gap: 12px; align-items: flex-start; }
+  .animal { font-size: 30px; line-height: 1; width: 44px; height: 44px; display: grid; place-items: center; background: var(--chip); border-radius: 12px; flex: none; }
+  .name { font-weight: 650; font-size: 16px; overflow-wrap: anywhere; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .badges { display: flex; flex-wrap: wrap; gap: 6px; }
+  .badge { font-size: 12px; padding: 2px 8px; border-radius: 99px; background: var(--chip); color: var(--muted); }
+  .badge.warn { background: var(--warn-bg); color: var(--warn); }
+  .ports { display: flex; flex-wrap: wrap; gap: 6px; }
+  .port { font: 600 14px var(--mono); padding: 4px 10px; border-radius: 8px; background: var(--chip); color: var(--ink); text-decoration: none; display: inline-flex; gap: 6px; align-items: center; }
+  a.port:hover { background: var(--accent); color: var(--accent-ink); }
+  .port small { font-weight: 400; font-family: system-ui, sans-serif; color: var(--muted); }
+  a.port:hover small { color: inherit; }
+  .title { font-size: 13px; color: var(--muted); font-style: italic; overflow-wrap: anywhere; }
+  .cmd { font: 12px/1.5 var(--mono); color: var(--muted); background: var(--chip); padding: 8px 10px; border-radius: 8px; overflow-wrap: anywhere; cursor: pointer; }
+  .cmd > span { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+  .cmd.open > span { display: block; }
+  .cwd { font: 12px var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+  .actions { display: flex; gap: 8px; margin-top: auto; padding-top: 4px; align-items: center; }
+  .actions .spacer { flex: 1; }
+  .kill { color: var(--danger); }
+  .kill.armed { background: var(--danger); border-color: var(--danger); color: #fff; }
+  .kill:disabled { opacity: .5; cursor: default; }
+  .empty { grid-column: 1 / -1; text-align: center; padding: 60px 20px; color: var(--muted); }
+  .empty .big { font-size: 48px; }
+  .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-size: 14px; max-width: calc(100% - 32px); opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+  .toast.err { background: var(--danger); color: #fff; }
+  .gone { animation: gone .5s forwards; }
+  @keyframes gone { to { opacity: 0; transform: scale(.96); } }
+  @media (max-width: 420px) {
+    header, .bar, main { padding-left: 16px; padding-right: 16px; }
+    main { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>🦝 localhost zoo <span class="host" id="host">…</span></h1>
+  <p class="sub" id="summary">Rounding up the animals…</p>
+</header>
+<div class="bar">
+  <input type="search" id="q" placeholder="Filter by port, project, command…  ( / )" autocomplete="off">
+  <label class="toggle"><input type="checkbox" id="sys"> show system</label>
+  <button id="refresh" title="Refresh (r)">Refresh</button>
+  <span class="live" id="live"><span class="dot"></span><span id="liveText">live</span></span>
+</div>
+<main id="grid"></main>
+<div class="toast" id="toast"></div>
+
+<script>
+const TOKEN = '__ZOO_TOKEN__';
+const $ = (s) => document.querySelector(s);
+const state = { data: null, armed: null, showSystem: false, open: new Set() };
+try { state.showSystem = localStorage.getItem('zoo.sys') === '1'; } catch {}
+$('#sys').checked = state.showSystem;
+
+const ANIMALS = {
+  'PostgreSQL': '🐘', 'MySQL': '🐬', 'Redis': '🦊', 'MongoDB': '🐿️', 'Docker': '🐳', 'nginx': '🦬',
+  'Jupyter': '🪐', 'Storybook': '🦜',
+  node: '🦖', deno: '🦕', bun: '🐰', python: '🐍', go: '🐹', rust: '🦀', ruby: '🐞',
+  php: '🐘', java: '🦧', elixir: '🦄',
+};
+const animalFor = (e) => ANIMALS[e.framework] || ANIMALS[e.project?.lang] || (e.kind === 'system' ? '🦉' : '🦝');
+
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const shortPath = (p) => p ? p.replace(/^\/(Users|home)\/[^/]+/, '~') : '';
+function ago(sec) {
+  if (sec == null) return '';
+  if (sec < 60) return sec + 's';
+  if (sec < 3600) return Math.floor(sec / 60) + 'm';
+  if (sec < 86400) return Math.floor(sec / 3600) + 'h ' + Math.floor(sec % 3600 / 60) + 'm';
+  return Math.floor(sec / 86400) + 'd ' + Math.floor(sec % 86400 / 3600) + 'h';
+}
+const mem = (kb) => kb == null ? '' : kb > 1048576 ? (kb / 1048576).toFixed(1) + ' GB' : Math.round(kb / 1024) + ' MB';
+
+function toast(msg, err) {
+  const t = $('#toast');
+  t.textContent = msg; t.className = 'toast show' + (err ? ' err' : '');
+  clearTimeout(toast.t); toast.t = setTimeout(() => (t.className = 'toast'), 3200);
+}
+
+async function load() {
+  try {
+    const r = await fetch('/api/ports', { headers: { 'x-zoo-token': TOKEN } });
+    if (!r.ok) throw new Error((await r.json()).error || r.statusText);
+    state.data = await r.json();
+    render();
+  } catch (e) {
+    $('#summary').textContent = 'Could not scan: ' + e.message;
+  }
+}
+
+function matches(e, q) {
+  if (!q) return true;
+  const hay = [e.ports.join(' '), e.command, e.cmdline, e.cwd, e.project?.name, e.framework, e.pid, e.user,
+    ...Object.values(e.http || {}).map((h) => h.title)].join(' ').toLowerCase();
+  return q.toLowerCase().split(/\s+/).every((w) => hay.includes(w));
+}
+
+function render() {
+  const d = state.data; if (!d) return;
+  const q = $('#q').value.trim();
+  const dev = d.entries.filter((e) => e.kind === 'dev');
+  const shown = d.entries.filter((e) => (state.showSystem || e.kind === 'dev' || q) && matches(e, q));
+  $('#host').textContent = d.host;
+  const portsCount = dev.reduce((n, e) => n + e.ports.length, 0);
+  $('#summary').textContent = dev.length
+    ? `${dev.length} dev server${dev.length > 1 ? 's' : ''} on ${portsCount} port${portsCount > 1 ? 's' : ''} · ${d.entries.length - dev.length} system listener${d.entries.length - dev.length === 1 ? '' : 's'} hidden${state.showSystem ? ' (showing)' : ''}`
+    : `No dev servers running · ${d.entries.length} system listener${d.entries.length === 1 ? '' : 's'}`;
+  document.title = dev.length ? `(${dev.length}) localhost zoo` : 'localhost zoo';
+
+  const grid = $('#grid');
+  if (!shown.length) {
+    grid.innerHTML = `<div class="empty"><div class="big">🦗</div><p>${q ? 'No animal matches “' + esc(q) + '”.' : 'The zoo is quiet. Start a dev server and it will show up here.'}</p></div>`;
+    return;
+  }
+  const linkHost = location.hostname.includes(':') ? `[${location.hostname}]` : location.hostname;
+  grid.innerHTML = shown.map((e) => {
+    const name = e.project?.name || e.command || 'pid ' + e.pid;
+    const titles = Object.values(e.http || {}).map((h) => h.title).filter(Boolean);
+    const ports = e.ports.map((p) => {
+      const h = e.http?.[p];
+      return h?.http
+        ? `<a class="port" href="http://${linkHost}:${p}/" target="_blank" rel="noopener">:${p} <small>${h.status}</small></a>`
+        : `<span class="port" title="Not HTTP (or didn't answer)">:${p}</span>`;
+    }).join('');
+    const badges = [
+      e.framework && `<span class="badge">${esc(e.framework)}</span>`,
+      e.project?.lang && !e.framework && `<span class="badge">${esc(e.project.lang)}</span>`,
+      e.exposed && `<span class="badge warn" title="Listening on all interfaces — reachable from your network">exposed to network</span>`,
+      e.self && `<span class="badge">this dashboard</span>`,
+      e.mine === false && `<span class="badge" title="Owned by another user">${esc(e.user)}</span>`,
+    ].filter(Boolean).join('');
+    const armed = state.armed === e.pid;
+    return `<article class="card ${e.kind}" data-pid="${e.pid}">
+      <div class="top">
+        <div class="animal" aria-hidden="true">${animalFor(e)}</div>
+        <div style="min-width:0">
+          <div class="name">${esc(name)}</div>
+          <div class="meta">pid ${e.pid}${e.uptimeSec != null ? ' · up ' + ago(e.uptimeSec) : ''}${e.rssKb != null ? ' · ' + mem(e.rssKb) : ''}</div>
+        </div>
+      </div>
+      ${badges ? `<div class="badges">${badges}</div>` : ''}
+      <div class="ports">${ports}</div>
+      ${titles.length ? `<div class="title">“${esc(titles[0])}”</div>` : ''}
+      <div class="cmd${state.open.has(e.pid) ? ' open' : ''}" data-pid="${e.pid}" title="Click to expand"><span>${esc(e.cmdline)}</span></div>
+      ${e.cwd && e.cwd !== '/' ? `<div class="cwd">📁 ${esc(shortPath(e.cwd))}</div>` : ''}
+      <div class="actions">
+        <button class="copy" data-copy="${esc(e.cwd || '')}" ${e.cwd ? '' : 'disabled'}>Copy path</button>
+        <span class="spacer"></span>
+        <button class="kill ${armed ? 'armed' : ''}" data-pid="${e.pid}" ${e.self ? 'disabled' : ''}
+          title="Click twice to stop (SIGTERM). Shift-click to force (SIGKILL).">${armed ? 'Really stop?' : 'Stop'}</button>
+      </div>
+    </article>`;
+  }).join('');
+}
+
+async function kill(pid, force, card) {
+  const btn = card.querySelector('.kill');
+  btn.disabled = true; btn.textContent = 'Stopping…';
+  try {
+    const r = await fetch('/api/kill', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-zoo-token': TOKEN },
+      body: JSON.stringify({ pid, force }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error);
+    if (j.exited) { card.classList.add('gone'); toast(`Released pid ${pid} back into the wild 🌿`); }
+    else toast(`Sent ${j.signal}, but pid ${pid} is still running. Shift-click Stop to force it.`, true);
+  } catch (e) {
+    toast(e.message, true);
+  } finally {
+    state.armed = null;
+    setTimeout(load, 400);
+  }
+}
+
+$('#grid').addEventListener('click', (ev) => {
+  const cmd = ev.target.closest('.cmd');
+  if (cmd) {
+    if (getSelection().toString()) return; // selecting text, not toggling
+    const pid = Number(cmd.dataset.pid);
+    state.open.has(pid) ? state.open.delete(pid) : state.open.add(pid);
+    return cmd.classList.toggle('open');
+  }
+  const copy = ev.target.closest('.copy');
+  if (copy) {
+    navigator.clipboard?.writeText(copy.dataset.copy).then(() => toast('Path copied'), () => toast('Copy failed', true));
+    return;
+  }
+  const k = ev.target.closest('.kill');
+  if (!k) return;
+  const pid = Number(k.dataset.pid);
+  if (ev.shiftKey || state.armed === pid) return kill(pid, ev.shiftKey, k.closest('.card'));
+  state.armed = pid; render();
+  clearTimeout(kill.t); kill.t = setTimeout(() => { state.armed = null; render(); }, 3000);
+});
+
+$('#q').addEventListener('input', render);
+$('#sys').addEventListener('change', (e) => {
+  state.showSystem = e.target.checked;
+  try { localStorage.setItem('zoo.sys', state.showSystem ? '1' : '0'); } catch {}
+  render();
+});
+$('#refresh').addEventListener('click', load);
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') { if (e.key === 'Escape') { e.target.value = ''; render(); e.target.blur(); } return; }
+  if (e.key === '/') { e.preventDefault(); $('#q').focus(); }
+  if (e.key === 'r') load();
+});
+
+// Live refresh while the tab is visible and nothing is armed.
+setInterval(() => {
+  const live = !document.hidden && state.armed == null && !getSelection().toString();
+  $('#live').classList.toggle('paused', !live);
+  $('#liveText').textContent = live ? 'live' : 'paused';
+  if (live) load();
+}, 3000);
+load();
+</script>
+</body>
+</html>

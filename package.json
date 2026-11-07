@@ -1,0 +1,41 @@
+{
+  "name": "localhost-zoo",
+  "version": "1.0.0",
+  "description": "See every dev server running on your machine in one dashboard — and kill the one squatting on port 3000.",
+  "type": "module",
+  "bin": {
+    "localhost-zoo": "bin/localhost-zoo.js",
+    "zoo": "bin/localhost-zoo.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "public"
+  ],
+  "scripts": {
+    "start": "node bin/localhost-zoo.js",
+    "test": "node --test test/"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "localhost",
+    "ports",
+    "dev-server",
+    "lsof",
+    "kill-port",
+    "dashboard",
+    "cli"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/koigkio/localhost-zoo.git"
+  },
+  "homepage": "https://github.com/koigkio/localhost-zoo#readme",
+  "bugs": {
+    "url": "https://github.com/koigkio/localhost-zoo/issues"
+  },
+  "author": "koigkio"
+}
