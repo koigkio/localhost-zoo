@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.0 — 2026-11-07
+
+- **Telegram bot** (`zoo telegram`): every process in a chat, with details, fixes and Stop buttons. Setup asks for a BotFather token (hidden input, saved with `chmod 600`) and pairs the bot to one owner with a one-time code; everyone else is turned away. `zoo telegram service` prints a systemd unit to keep it running.
+- **How to fix.** Every exposed dev server gets copy-paste fixes for its stack (Vite, Next.js, Uvicorn, Django, Flask, Redis, Postgres, MySQL, MongoDB, Elasticsearch, Docker compose / run, ufw, SSH tunnel) and a plain-words note on what is at risk. Shown in the dashboard, `zoo top`, `zoo list`, the bot and MCP.
+- **systemd.** Processes show their unit (`nginx.service`) and Stop uses `systemctl stop`, so services don't restart right away.
+- **Protected processes.** sshd, Docker and init can't be stopped from the dashboard, the bot, `zoo top`, `zoo kill` or MCP.
+- Containers are now recognised by image (`redis:7` → Redis), plus Elasticsearch, Memcached, RabbitMQ, ClickHouse, Grafana, Prometheus, MinIO, Kibana and an open Docker API.
+- README: Hall of shame, Telegram section, FAQ.
+
 ## 1.1.0 — 2026-11-07
 
 - **`zoo top`**: a live htop-style view in the terminal. Move with arrows or `j`/`k`, stop with `s`/`S`, filter with `/`. Made for SSH sessions.

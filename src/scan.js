@@ -9,6 +9,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { listContainers, isDockerProcess, parseDockerUptime } from './docker.js';
 import { networkInfo, classify } from './exposure.js';
+import { advise } from './fixes.js';
 
 const run = promisify(execFile);
 
@@ -154,7 +155,20 @@ const FRAMEWORKS = [
   [/gunicorn/, 'Gunicorn'], [/streamlit/, 'Streamlit'], [/jupyter/, 'Jupyter'],
   [/http\.server/, 'Python http.server'], [/\brails\b|puma/, 'Rails'], [/\bhugo\b/, 'Hugo'],
   [/postgres/, 'PostgreSQL'], [/mysqld|mariadb/, 'MySQL'], [/redis-server/, 'Redis'],
-  [/mongod\b/, 'MongoDB'], [/nginx/, 'nginx'], [/docker-proxy|com\.docker|vpnkit/, 'Docker'],
+  [/mongod\b/, 'MongoDB'], [/elasticsearch|opensearch/, 'Elasticsearch'], [/memcached/, 'Memcached'],
+  [/rabbitmq|rabbit@/, 'RabbitMQ'], [/clickhouse/, 'ClickHouse'], [/grafana/, 'Grafana'],
+  [/prometheus/, 'Prometheus'], [/\bminio\b/, 'MinIO'], [/kibana/, 'Kibana'],
+  [/dockerd .*-h(ost)?[ =]tcp:/, 'Docker API'],
+  [/nginx/, 'nginx'], [/docker-proxy|com\.docker|vpnkit/, 'Docker'],
+];
+
+// Docker images: "redis:7", "bitnami/postgresql:16", "docker.elastic.co/elasticsearch/elasticsearch:8"
+const IMAGES = [
+  [/(^|\/)postgres/, 'PostgreSQL'], [/(^|\/)(mysql|mariadb)/, 'MySQL'], [/(^|\/)redis/, 'Redis'],
+  [/(^|\/)mongo/, 'MongoDB'], [/elasticsearch|opensearch/, 'Elasticsearch'], [/(^|\/)memcached/, 'Memcached'],
+  [/(^|\/)rabbitmq/, 'RabbitMQ'], [/clickhouse/, 'ClickHouse'], [/(^|\/)grafana/, 'Grafana'],
+  [/prometheus/, 'Prometheus'], [/(^|\/)minio/, 'MinIO'], [/kibana/, 'Kibana'], [/jupyter/, 'Jupyter'],
+  [/(^|\/)(nginx|caddy|traefik|haproxy|httpd)/, 'nginx'], [/(^|\/)node:/, 'Node.js'], [/(^|\/)python:/, 'Python'],
 ];
 
 // Databases and proxies are infrastructure, but still worth showing as "dev" when started from a project.
@@ -163,6 +177,43 @@ const SYSTEM_FRAMEWORKS = new Set(['nginx', 'Docker']);
 export function detectFramework(cmdline = '') {
   const c = cmdline.toLowerCase();
   for (const [re, name] of FRAMEWORKS) if (re.test(c)) return name;
+  return null;
+}
+
+export function detectImage(image = '') {
+  const i = image.toLowerCase();
+  for (const [re, name] of IMAGES) if (re.test(i)) return name;
+  return null;
+}
+
+/**
+ * Parse /proc/<pid>/cgroup into the systemd unit that owns the process.
+ * "0::/system.slice/nginx.service" → { name: 'nginx.service', user: false }
+ */
+export function parseCgroup(text = '') {
+  for (const line of text.split('\n')) {
+    const m = line.match(/^\d+:(?:name=systemd)?:(\/.*)$/);
+    if (!m) continue;
+    const parts = m[1].split('/');
+    const unit = [...parts].reverse().find((p) => /\.service$/.test(p) && !/^user@\d+\.service$/.test(p));
+    if (unit) return { name: unit, user: /\/user@\d+\.service\//.test(m[1]) };
+  }
+  return null;
+}
+
+async function systemdUnitOf(pid) {
+  if (process.platform !== 'linux') return null;
+  try { return parseCgroup(await readFile(`/proc/${pid}/cgroup`, 'utf8')); } catch { return null; }
+}
+
+/** Things a misclick should never take down. Returns a reason, or null. */
+export function protectedReason(e) {
+  const unit = e.unit?.name || '';
+  const cmd = `${e.command || ''} ${e.cmdline || ''}`;
+  if (e.pid === 1) return 'This is the init process.';
+  if (/^sshd?\.service$/.test(unit) || /\bsshd\b/.test(cmd)) return 'This is the SSH server: stopping it can lock you out of this machine.';
+  if (/^(docker|containerd)\.service$/.test(unit) || /\b(dockerd|containerd)\b/.test(e.command || '')) return 'This would stop Docker and every container.';
+  if (/^systemd/.test(e.command || '')) return 'This is part of systemd.';
   return null;
 }
 
@@ -204,14 +255,14 @@ function mergeContainers(entries, containers) {
     if (!c.bindings.length) continue;
     const proxy = dockerish.find((e) => e.bindings.some((b) => c.bindings.some((cb) => cb.port === b.port)));
     for (const e of dockerish) e.bindings = e.bindings.filter((b) => !c.bindings.some((cb) => cb.port === b.port));
-    const framework = detectFramework(c.image) || 'Docker';
+    const framework = detectImage(c.image) || detectFramework(c.command) || 'Docker';
     out.push({
       id: `docker:${c.id}`,
       pid: proxy?.pid ?? null,
       command: 'docker',
       user: proxy?.user || 'root',
       kind: 'dev',
-      bindings: c.bindings.map(({ address, port }) => ({ address, port })),
+      bindings: c.bindings.map(({ address, port, containerPort }) => ({ address, port, containerPort })),
       cmdline: `${c.image}${c.command ? '  ' + c.command : ''}`,
       ppid: null,
       rssKb: null,
@@ -221,6 +272,7 @@ function mergeContainers(entries, containers) {
       framework,
       container: { id: c.id, name: c.name, image: c.image, status: c.status, service: c.compose?.service || null },
       self: false,
+      unit: null,
       mine: true,
     });
   }
@@ -281,6 +333,8 @@ export async function scan({ probe: doProbe = true, self = process.pid, docker =
       project,
       framework,
       container: null,
+      // Docker's own helpers live in docker.service — never route their stop through systemctl.
+      unit: isDockerProcess(e.command, info.cmdline || '') ? null : await systemdUnitOf(pid),
       self: pid === self,
       mine: owner === os.userInfo().username,
     };
@@ -291,11 +345,11 @@ export async function scan({ probe: doProbe = true, self = process.pid, docker =
   entries = await Promise.all(entries.map(async (e) => {
     const ports = [...new Set(e.bindings.map((b) => b.port))].sort((a, b) => a - b);
     const exposure = classify(e, net);
+    const full = { ...e, ports, exposed: exposure.level !== 'local', exposure };
+    Object.assign(exposure, advise(full, net));
     return {
-      ...e,
-      ports,
-      exposed: exposure.level !== 'local',
-      exposure,
+      ...full,
+      protected: protectedReason(full),
       http: doProbe ? await probeAll(e.bindings) : {},
     };
   }));

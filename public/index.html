@@ -48,6 +48,18 @@
   .badge.warn { background: var(--warn-bg); color: var(--warn); }
   .badge.danger { background: var(--danger-bg); color: var(--danger); font-weight: 600; }
   .card.danger { border-color: var(--danger); }
+  .fix { border-top: 1px dashed var(--line); padding-top: 8px; font-size: 13px; }
+  .fix summary { cursor: pointer; font-weight: 600; color: var(--danger); list-style: none; }
+  .fix summary::-webkit-details-marker { display: none; }
+  .fix summary::after { content: ' ▸'; color: var(--muted); }
+  .fix[open] summary::after { content: ' ▾'; }
+  .fix .risk { margin: 8px 0; color: var(--muted); }
+  .fix-item { margin-top: 8px; }
+  .fix-title { margin-bottom: 4px; }
+  .fix .code { position: relative; }
+  .fix pre { margin: 0; font: 12px/1.5 var(--mono); background: var(--chip); padding: 8px 10px; padding-right: 56px; border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .fix .copy-cmd { position: absolute; top: 4px; right: 4px; font-size: 11px; padding: 2px 7px; }
+  .kill:disabled { cursor: not-allowed; }
   .banner { max-width: 1152px; margin: 12px auto 0; padding: 12px 16px; border-radius: 12px; background: var(--danger-bg); color: var(--danger); font-size: 14px; }
   .banner .hit { font-family: var(--mono); font-weight: 600; }
   .banner .why { margin-top: 4px; opacity: .85; font-size: 13px; }
@@ -98,12 +110,12 @@
 <script>
 const TOKEN = '__ZOO_TOKEN__';
 const $ = (s) => document.querySelector(s);
-const state = { data: null, armed: null, showSystem: false, open: new Set() };
+const state = { data: null, armed: null, showSystem: false, open: new Set(), fixOpen: new Set() };
 try { state.showSystem = localStorage.getItem('zoo.sys') === '1'; } catch {}
 $('#sys').checked = state.showSystem;
 
 const ANIMALS = {
-  'PostgreSQL': '🐘', 'MySQL': '🐬', 'Redis': '🦊', 'MongoDB': '🐿️', 'Docker': '🐳', 'nginx': '🦬',
+  'PostgreSQL': '🐘', 'MySQL': '🐬', 'Redis': '🦊', 'MongoDB': '🐿️', 'Elasticsearch': '🦌', 'Docker': '🐳', 'nginx': '🦬',
   'Jupyter': '🪐', 'Storybook': '🦜',
   node: '🦖', deno: '🦕', bun: '🐰', python: '🐍', go: '🐹', rust: '🦀', ruby: '🐞',
   php: '🐘', java: '🦧', elixir: '🦄',
@@ -194,6 +206,8 @@ function render() {
       e.framework && `<span class="badge">${esc(e.framework)}</span>`,
       e.project?.lang && !e.framework && `<span class="badge">${esc(e.project.lang)}</span>`,
       e.container && `<span class="badge" title="${esc(e.container.status)}">🐳 ${esc(e.container.image)}</span>`,
+      e.unit && `<span class="badge" title="systemd ${e.unit.user ? 'user ' : ''}service — Stop uses systemctl">⚙️ ${esc(e.unit.name)}</span>`,
+      e.protected && `<span class="badge" title="${esc(e.protected)}">🔒 protected</span>`,
       lvl === 'internet' && `<span class="badge danger" title="${esc(e.exposure.reason)}">🌍 open to the internet</span>`,
       lvl === 'network' && `<span class="badge warn" title="${esc(e.exposure.reason)}">exposed to network</span>`,
       lvl === 'firewalled' && `<span class="badge" title="${esc(e.exposure.reason)}">🧱 firewalled</span>`,
@@ -217,11 +231,17 @@ function render() {
       ${titles.length ? `<div class="title">“${esc(titles[0])}”</div>` : ''}
       <div class="cmd${state.open.has(e.id) ? ' open' : ''}" data-id="${esc(e.id)}" title="Click to expand"><span>${esc(e.cmdline)}</span></div>
       ${e.cwd && e.cwd !== '/' ? `<div class="cwd">📁 ${esc(shortPath(e.cwd))}</div>` : ''}
+      ${e.exposure?.fixes?.length ? `<details class="fix"${state.fixOpen.has(e.id) ? ' open' : ''} data-id="${esc(e.id)}">
+        <summary>🩹 How to fix</summary>
+        ${e.exposure.risk ? `<p class="risk">${esc(e.exposure.risk)}</p>` : ''}
+        ${e.exposure.fixes.map((f) => `<div class="fix-item"><div class="fix-title">${esc(f.title)}</div>
+          <div class="code"><pre>${esc(f.cmd)}</pre><button class="copy-cmd" data-copy="${esc(f.cmd)}" title="Copy">Copy</button></div></div>`).join('')}
+      </details>` : ''}
       <div class="actions">
         <button class="copy" data-copy="${esc(e.cwd || '')}" ${e.cwd ? '' : 'disabled'}>Copy path</button>
         <span class="spacer"></span>
-        <button class="kill ${armed ? 'armed' : ''}" data-id="${esc(e.id)}" ${e.self ? 'disabled' : ''}
-          title="${e.container ? 'Click twice for docker stop. Shift-click for docker kill.' : 'Click twice to stop (SIGTERM). Shift-click to force (SIGKILL).'}">${armed ? 'Really stop?' : 'Stop'}</button>
+        <button class="kill ${armed ? 'armed' : ''}" data-id="${esc(e.id)}" ${e.self || e.protected ? 'disabled' : ''}
+          title="${esc(e.protected || (e.container ? 'Click twice for docker stop. Shift-click for docker kill.' : e.unit ? `Click twice for systemctl stop ${e.unit.name}. Shift-click to SIGKILL it.` : 'Click twice to stop (SIGTERM). Shift-click to force (SIGKILL).'))}">${armed ? 'Really stop?' : e.protected ? '🔒 Stop' : 'Stop'}</button>
       </div>
     </article>`;
   }).join('');
@@ -256,6 +276,11 @@ $('#grid').addEventListener('click', (ev) => {
     state.open.has(id) ? state.open.delete(id) : state.open.add(id);
     return cmd.classList.toggle('open');
   }
+  const copyCmd = ev.target.closest('.copy-cmd');
+  if (copyCmd) {
+    navigator.clipboard?.writeText(copyCmd.dataset.copy).then(() => toast('Command copied'), () => toast('Copy failed', true));
+    return;
+  }
   const copy = ev.target.closest('.copy');
   if (copy) {
     navigator.clipboard?.writeText(copy.dataset.copy).then(() => toast('Path copied'), () => toast('Copy failed', true));
@@ -268,6 +293,12 @@ $('#grid').addEventListener('click', (ev) => {
   state.armed = id; render();
   clearTimeout(kill.t); kill.t = setTimeout(() => { state.armed = null; render(); }, 3000);
 });
+
+// Remember which "How to fix" panels are open across live refreshes.
+$('#grid').addEventListener('toggle', (ev) => {
+  const d = ev.target.closest?.('details.fix');
+  if (d) d.open ? state.fixOpen.add(d.dataset.id) : state.fixOpen.delete(d.dataset.id);
+}, true);
 
 $('#q').addEventListener('input', render);
 $('#sys').addEventListener('change', (e) => {

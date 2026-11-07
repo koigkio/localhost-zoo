@@ -9,7 +9,7 @@ const ESC = '\x1b[';
 const A = { reset: `${ESC}0m`, bold: `${ESC}1m`, dim: `${ESC}2m`, inv: `${ESC}7m`, red: `${ESC}31m`, green: `${ESC}32m`, yellow: `${ESC}33m`, cyan: `${ESC}36m` };
 
 const ANIMALS = {
-  PostgreSQL: '🐘', MySQL: '🐬', Redis: '🦊', Docker: '🐳', nginx: '🦬', Jupyter: '🪐', Storybook: '🦜',
+  PostgreSQL: '🐘', MySQL: '🐬', Redis: '🦊', MongoDB: '🐿', Elasticsearch: '🦌', Docker: '🐳', nginx: '🦬', Jupyter: '🪐', Storybook: '🦜',
   node: '🦖', deno: '🦕', bun: '🐰', python: '🐍', go: '🐹', rust: '🦀', ruby: '🐞', php: '🐘', java: '🦧', elixir: '🦄',
 };
 export const animalFor = (e) => ANIMALS[e.framework] || ANIMALS[e.project?.lang] || (e.container ? '🐳' : e.kind === 'system' ? '🦉' : '🦝');
@@ -105,7 +105,7 @@ export function renderFrame(state, cols, rows) {
   const whereW = Math.max(0, cols - fixed);
   push(A.dim + fit(`    ${fit('PORT', W.port)} ${fit('NAME', W.name)} ${fit('KIND', W.kind)} ${fit('UP', W.up)} ${fit('MEM', W.mem)} ${fit('REACH', W.reach)} WHERE`, cols) + A.reset);
 
-  const detailRows = 3;
+  const detailRows = 4;
   const footerRows = 2;
   const listRows = Math.max(1, rows - lines.length - detailRows - footerRows);
   const selIndex = Math.max(0, list.findIndex((e) => e.id === state.selectedId));
@@ -140,10 +140,15 @@ export function renderFrame(state, cols, rows) {
   if (s) {
     const titles = Object.values(s.http || {}).map((h) => h.title).filter(Boolean);
     const http = Object.entries(s.http || {}).filter(([, h]) => h.http).map(([p, h]) => `:${p} ${h.status}`).join('  ');
-    push(fit(` ${s.container ? `container ${s.container.id} · ${s.container.status}` : `pid ${s.pid} · ${s.user || '?'}`}  ${s.cmdline}`, cols));
+    const who = s.container ? `container ${s.container.id} · ${s.container.status}` : `pid ${s.pid} · ${s.user || '?'}${s.unit ? ` · ${s.unit.name}` : ''}`;
+    push(fit(` ${who}  ${s.cmdline}`, cols));
     const reach = s.exposure ? `${s.exposure.level}: ${s.exposure.reason}` : '';
     push(fit(` ${http ? 'http ' + http + (titles[0] ? ` “${titles[0]}”` : '') + '  ·  ' : ''}${reach}`, cols));
-  } else { push(''); push(''); }
+    const fix = s.exposure?.fixes?.[0];
+    if (s.protected) push(A.yellow + fit(` 🔒 ${s.protected}`, cols) + A.reset);
+    else if (fix) push(A.green + fit(` 🩹 ${fix.title}: ${fix.cmd.split('\n').filter((l) => !l.startsWith('#')).join(' ⏎ ')}`, cols) + A.reset);
+    else push('');
+  } else { push(''); push(''); push(''); }
 
   // Footer
   push(A.dim + '─'.repeat(cols) + A.reset);
@@ -244,6 +249,7 @@ export async function runTop({ demo = false, interval = 2000 } = {}) {
         const entry = visibleEntries(state.data, state).find((e) => e.id === state.selectedId);
         if (!entry) return;
         if (entry.self) return say("That's the zoo itself.");
+        if (entry.protected) return say(`${A.yellow}🔒 ${entry.protected}${A.reset}`);
         state.mode = 'confirm'; state.confirm = { entry, force: key === 'S' };
         return draw();
       }

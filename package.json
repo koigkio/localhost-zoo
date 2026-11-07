@@ -1,7 +1,7 @@
 {
   "name": "localhost-zoo",
-  "version": "1.1.0",
-  "description": "Every dev server on your machine in one live dashboard, a terminal UI and an MCP server — and stop the one squatting on port 3000.",
+  "version": "1.2.0",
+  "description": "Every dev server on your machine in one live dashboard, terminal UI, Telegram bot and MCP server — see what is open to the internet and how to fix it.",
   "type": "module",
   "bin": {
     "localhost-zoo": "bin/localhost-zoo.js",
@@ -31,7 +31,10 @@
     "mcp",
     "ufw",
     "tui",
-    "security"
+    "security",
+    "telegram",
+    "telegram-bot",
+    "systemd"
   ],
   "license": "MIT",
   "repository": {

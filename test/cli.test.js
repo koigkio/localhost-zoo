@@ -12,5 +12,5 @@ test('--version prints the package version', () => {
 
 test('--help mentions every command', () => {
   const help = execFileSync(process.execPath, [bin, '--help'], { encoding: 'utf8' });
-  for (const word of ['list', 'kill', 'top', 'mcp', '--json', '--demo', '--version']) assert.ok(help.includes(word), word);
+  for (const word of ['list', 'kill', 'top', 'mcp', 'telegram', '--json', '--demo', '--version']) assert.ok(help.includes(word), word);
 });

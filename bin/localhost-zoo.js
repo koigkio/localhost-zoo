@@ -16,6 +16,9 @@ Usage
   zoo list [--all]        print a table of listening dev servers
   zoo kill <port>         stop whatever is listening on <port>
   zoo mcp                 MCP server for AI agents (Claude Code, Cursor…)
+  zoo telegram            Telegram bot: the zoo in your pocket (asks for a bot token)
+  zoo telegram service    print a systemd unit to keep the bot running
+  zoo telegram --reset    forget the token and the owner
   zoo --json              print the raw scan as JSON
 
 Options
@@ -46,6 +49,7 @@ try {
       force: { type: 'boolean', short: 'f' },
       json: { type: 'boolean' },
       demo: { type: 'boolean' },
+      reset: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
       version: { type: 'boolean', short: 'v' },
     },
@@ -74,6 +78,9 @@ async function main() {
   if (cmd === 'kill') return killPort(positionals[1]);
   if (cmd === 'top') return (await import('../src/top.js')).runTop({ demo: opt.demo });
   if (cmd === 'mcp') return (await import('../src/mcp.js')).runMcp({ demo: opt.demo });
+  if (cmd === 'telegram' || cmd === 'tg' || cmd === 'bot') {
+    return (await import('../src/telegram.js')).runTelegram({ demo: opt.demo, reset: opt.reset, sub: positionals[1] || null });
+  }
   if (cmd === 'serve') return serve();
   console.error(`Unknown command "${cmd}". Try --help.`);
   process.exitCode = 1;
@@ -113,7 +120,12 @@ async function list() {
   // Warn about dev servers only: sshd or nginx on :22/:443 are usually open on purpose.
   const open = rows.filter((e) => e.kind === 'dev' && e.exposure?.level === 'internet');
   if (open.length) console.log();
-  for (const e of open) console.log(red(`⚠ ${e.container?.name || e.project?.name || e.command} is open to the internet: ${e.exposure.reason}`));
+  for (const e of open) {
+    console.log(red(`⚠ ${e.container?.name || e.project?.name || e.command} is open to the internet: ${e.exposure.reason}`));
+    if (e.exposure.risk) console.log(dim(`  ${e.exposure.risk}`));
+    const fix = e.exposure.fixes?.[0];
+    if (fix) console.log(`  🩹 ${fix.title}:\n${green(fix.cmd.split('\n').map((l) => '     ' + l).join('\n'))}`);
+  }
 }
 
 async function killPort(arg) {

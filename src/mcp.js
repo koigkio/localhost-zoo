@@ -16,7 +16,7 @@ const up = (s) => s == null ? '' : s < 3600 ? `${Math.floor(s / 60)}m` : s < 864
 /** One readable line per server — what an agent needs to decide. */
 export function describe(e) {
   const name = e.container ? `${e.container.name} (docker ${e.container.image})` : (e.project?.name || e.command);
-  const who = e.container ? `container ${e.container.id.slice(0, 12)}` : `pid ${e.pid}`;
+  const who = e.container ? `container ${e.container.id.slice(0, 12)}` : `pid ${e.pid}${e.unit ? ` · systemd ${e.unit.name}` : ''}`;
   const http = Object.entries(e.http || {}).filter(([, h]) => h.http)
     .map(([p, h]) => `:${p} → HTTP ${h.status}${h.title ? ` "${h.title}"` : ''}`).join(', ');
   return [
@@ -24,6 +24,7 @@ export function describe(e) {
     `  ${who}${e.uptimeSec != null ? ` · up ${up(e.uptimeSec)}` : ''} · reach: ${e.exposure?.level || 'local'}${e.cwd && e.cwd !== '/' ? ` · ${home(e.cwd)}` : ''}`,
     http && `  ${http}`,
     `  cmd: ${e.cmdline}`,
+    e.protected && `  protected: ${e.protected}`,
   ].filter(Boolean).join('\n');
 }
 
@@ -69,7 +70,7 @@ export const TOOLS = [
   {
     name: 'check_exposure',
     title: 'What is open to the internet?',
-    description: 'Report which listening ports can be reached from the internet or the local network, with the reason (public IP, ufw rules, Docker publishing past ufw).',
+    description: 'Report which listening ports can be reached from the internet or the local network, with the reason (public IP, ufw rules, Docker publishing past ufw), what is at risk, and copy-pasteable fixes.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: { readOnlyHint: true, openWorldHint: false },
   },
@@ -111,7 +112,12 @@ export function createHandler({ demo = false, version = '0.0.0' } = {}) {
       const exposed = d.entries.filter((e) => e.exposure && e.exposure.level !== 'local')
         .sort((a, b) => rank[a.exposure.level] - rank[b.exposure.level]);
       if (!exposed.length) return text(`${head}\nEverything listens on localhost only.`);
-      return text(`${head}\n\n${exposed.map((e) => `${e.exposure.level.toUpperCase()}  ${e.ports.map((p) => ':' + p).join(' ')}  ${e.container?.name || e.project?.name || e.command} — ${e.exposure.reason}`).join('\n')}`);
+      const block = (e) => [
+        `${e.exposure.level.toUpperCase()}  ${e.ports.map((p) => ':' + p).join(' ')}  ${e.container?.name || e.project?.name || e.command} — ${e.exposure.reason}`,
+        e.exposure.risk && `  risk: ${e.exposure.risk}`,
+        ...(e.exposure.fixes || []).map((f) => `  fix: ${f.title}\n${f.cmd.split('\n').map((l) => '    ' + l).join('\n')}`),
+      ].filter(Boolean).join('\n');
+      return text(`${head}\n\n${exposed.map(block).join('\n\n')}`);
     }
     return null;
   }
