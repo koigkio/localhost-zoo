@@ -89,6 +89,8 @@ Just want to look? Add `--demo` to any command, and you get fake servers where n
 
 Every old project leaves something behind: a gigabyte of `node_modules`, a `.venv`, a Rust `target`. Package managers keep caches forever. Open the **Disk** tab in the dashboard, or run:
 
+<img src="assets/disk.png" alt="The Disk tab: 24.9 GB in 13 rebuildable folders — node_modules, virtualenvs, Rust builds and tool caches, with how long each project has been idle" width="820">
+
 ```bash
 zoo disk
 ```

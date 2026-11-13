@@ -1,8 +1,9 @@
 # Changelog
 
-## Unreleased
+## 2.0.0 — 2026-11-13
 
 - **Disk zoo** (`zoo disk`, and a Disk tab in the dashboard): finds `node_modules`, virtualenvs, Rust `target`, `.next` and other build folders in your projects, plus the caches of npm, Yarn, pnpm, Bun, pip, Poetry, uv, Homebrew, Cargo, Go, Gradle, Maven and Xcode. Shows the size and how long each project has been idle, and moves what you pick to the Trash. `zoo disk clean --older 90` picks every project folder untouched for 90+ days. Only folders that can be rebuilt are ever listed, and only those from the latest scan can be cleaned.
+- Dashboard: Servers and Disk tabs (`1` / `2` to switch), counts on each tab.
 
 ## 1.2.0 — 2026-11-07
 
