@@ -34,6 +34,7 @@
 - ⚙️ **Знает systemd.** Показывает `ml-api.service` и останавливает его через `systemctl`, чтобы он не воскрес через секунду.
 - 🔒 **Не даст выстрелить себе в ногу.** sshd и сам Docker не остановить случайным кликом.
 - 🖥 **`zoo top`.** Живой вид в стиле htop прямо в терминале.
+- 🧹 **Disk zoo.** Находит гигабайты, которые тихо съедает разработка: `node_modules`, виртуальные окружения, `target` от Rust, `.next`, кэши npm/pip/Homebrew/Cargo, DerivedData от Xcode. Выбираешь и отправляешь в Корзину.
 - 🤖 **MCP-сервер.** Claude Code, Cursor и другие агенты могут спросить «что на порту 3000?» и освободить его.
 - 📁 **Знает, откуда процесс.** Показывает папку, имя проекта из `package.json`, `pyproject.toml`, `go.mod` или `Cargo.toml` и `<title>` страницы.
 
@@ -71,6 +72,9 @@ zoo
 | `zoo list` | dev-серверы таблицей: кто их видит и как починить |
 | `zoo kill 3000` | остановить то, что слушает порт 3000: процесс, контейнер или сервис |
 | `zoo kill 3000 -f` | то же через SIGKILL / `docker kill` / `systemctl kill` |
+| `zoo disk` | папки и кэши, которые можно пересобрать, самые большие сверху |
+| `zoo disk clean 1 4` | отправить их в Корзину (номера из `zoo disk`) |
+| `zoo disk clean --older 90` | все папки проектов, которые не трогали 90+ дней |
 | `zoo mcp` | MCP-сервер для AI-агентов |
 | `zoo --json` | сырой результат в JSON, для скриптов |
 
@@ -80,6 +84,31 @@ zoo
 | `-H`, `--host` | `127.0.0.1` | адрес; любой, кроме loopback, требует токен |
 | `--no-open` | | не открывать браузер |
 | `--demo` | | демо-данные, работает с любой командой |
+
+## 🧹 Disk zoo
+
+После каждого старого проекта что-то остаётся: гигабайт `node_modules`, `.venv`, `target` от Rust. Менеджеры пакетов хранят кэши вечно. Открой вкладку **Disk** в панели или запусти:
+
+```bash
+zoo disk
+```
+
+```
+ #    SIZE  KIND               IDLE   PATH
+ 1  6.2 GB  Xcode DerivedData  cache  ~/Library/Developer/Xcode/DerivedData
+ 2  3.9 GB  Rust build         2d     ~/code/ingest-worker/target
+ 3  2.1 GB  Rust build         6mo    ~/code/rust-playground/target
+ 4  1.8 GB  node_modules       8mo    ~/code/old-landing/node_modules
+ 5  1.4 GB  virtualenv         1.5y   ~/notebooks/kaggle-titanic/.venv
+
+  24.9 GB in 13 folders · 6.3 GB in projects untouched for 90+ days
+```
+
+**IDLE** — сколько времени назад ты трогал сам проект. Так забытый хакатон сразу виден на фоне проекта, с которым работаешь каждый день.
+
+- В списке только то, что можно пересобрать: `node_modules`, `.venv` (с `pyvenv.cfg`), `target` рядом с `Cargo.toml`, `.next`, `.nuxt`, `.svelte-kit`, `.turbo`, `.parcel-cache`, `.gradle` и кэши npm, Yarn, pnpm, Bun, pip, Poetry, uv, Homebrew, Cargo, Go, Gradle, Maven и Xcode. Папку `build` или `target` без файла проекта рядом zoo не трогает.
+- Всё уходит в **Корзину** (`~/.Trash` на macOS, `~/.local/share/Trash` на Linux), так что можно вернуть. Чтобы место освободилось, очисти Корзину. Shift-клик в панели или `-f` в терминале удаляет насовсем.
+- Образы и тома Docker показываются, но чистить их лучше самим `docker system prune`.
 
 ## 🚨 Стена позора
 
@@ -249,6 +278,7 @@ zoo
 - [x] Docker-контейнеры по именам · systemd-сервисы
 - [x] Проверка доступа из интернета с исправлениями
 - [x] `zoo top` · MCP-сервер · Telegram-бот
+- [x] Disk zoo: `node_modules`, окружения, сборки и кэши
 - [ ] Оповещения в боте: «только что открылся новый порт в интернет»
 - [ ] Остановка всего дерева процессов (`npm → node → vite`)
 - [ ] firewalld и nftables

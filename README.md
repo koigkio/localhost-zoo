@@ -34,6 +34,7 @@ dashboard · terminal UI · Telegram bot · Docker & systemd aware · “open to
 - ⚙️ **Knows systemd.** It shows `ml-api.service` and stops it with `systemctl`, so it doesn't spring back to life a second later.
 - 🔒 **Won't let you shoot yourself in the foot.** sshd and Docker itself can't be stopped by a misclick.
 - 🖥 **`zoo top`.** An htop-style live view right in the terminal.
+- 🧹 **Disk zoo.** Finds the gigabytes dev work quietly eats: `node_modules`, virtualenvs, Rust `target`, `.next`, npm/pip/Homebrew/Cargo caches, Xcode DerivedData. Pick and move to the Trash.
 - 🤖 **MCP server.** Claude Code, Cursor and other agents can ask “what is on port 3000?” and free it.
 - 📁 **Knows where each process came from.** Shows the folder, the project name from `package.json`, `pyproject.toml`, `go.mod` or `Cargo.toml`, and the page `<title>`.
 
@@ -71,6 +72,9 @@ Just want to look? Add `--demo` to any command, and you get fake servers where n
 | `zoo list` | dev servers as a table, with who can reach them and how to fix it |
 | `zoo kill 3000` | stop whatever listens on port 3000: process, container or service |
 | `zoo kill 3000 -f` | the same, with SIGKILL / `docker kill` / `systemctl kill` |
+| `zoo disk` | folders and caches that can be rebuilt, biggest first |
+| `zoo disk clean 1 4` | move those to the Trash (numbers from `zoo disk`) |
+| `zoo disk clean --older 90` | every project folder untouched for 90+ days |
 | `zoo mcp` | MCP server for AI agents |
 | `zoo --json` | the raw scan as JSON, for scripts |
 
@@ -80,6 +84,31 @@ Just want to look? Add `--demo` to any command, and you get fake servers where n
 | `-H`, `--host` | `127.0.0.1` | bind address; anything other than loopback requires a token |
 | `--no-open` | | don't open a browser |
 | `--demo` | | fake data, works with every command |
+
+## 🧹 Disk zoo
+
+Every old project leaves something behind: a gigabyte of `node_modules`, a `.venv`, a Rust `target`. Package managers keep caches forever. Open the **Disk** tab in the dashboard, or run:
+
+```bash
+zoo disk
+```
+
+```
+ #    SIZE  KIND               IDLE   PATH
+ 1  6.2 GB  Xcode DerivedData  cache  ~/Library/Developer/Xcode/DerivedData
+ 2  3.9 GB  Rust build         2d     ~/code/ingest-worker/target
+ 3  2.1 GB  Rust build         6mo    ~/code/rust-playground/target
+ 4  1.8 GB  node_modules       8mo    ~/code/old-landing/node_modules
+ 5  1.4 GB  virtualenv         1.5y   ~/notebooks/kaggle-titanic/.venv
+
+  24.9 GB in 13 folders · 6.3 GB in projects untouched for 90+ days
+```
+
+**IDLE** is how long ago you last touched the project itself, so a forgotten hackathon stands out from the project you work on every day.
+
+- Only folders that can be rebuilt are listed: `node_modules`, `.venv` (with `pyvenv.cfg`), `target` next to `Cargo.toml`, `.next`, `.nuxt`, `.svelte-kit`, `.turbo`, `.parcel-cache`, `.gradle`, and the caches of npm, Yarn, pnpm, Bun, pip, Poetry, uv, Homebrew, Cargo, Go, Gradle, Maven and Xcode. A folder called `build` or `target` without its project file is left alone.
+- Everything goes to the **Trash** (`~/.Trash` on macOS, `~/.local/share/Trash` on Linux), so you can still get it back. Empty the Trash to get the space. Shift-click in the dashboard, or `-f` in the terminal, deletes for good.
+- Docker's images and volumes are shown, but cleaning them is left to `docker system prune`.
 
 ## 🚨 Hall of shame
 
@@ -249,6 +278,7 @@ zoo
 - [x] Docker containers by name · systemd services
 - [x] Internet exposure check with fixes
 - [x] `zoo top` · MCP server · Telegram bot
+- [x] Disk zoo: `node_modules`, venvs, builds and caches
 - [ ] Bot alerts: “a new port just opened to the internet”
 - [ ] Stop the whole process tree (`npm → node → vite`)
 - [ ] firewalld and nftables

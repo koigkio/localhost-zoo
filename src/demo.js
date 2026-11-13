@@ -111,3 +111,43 @@ export function demoKill(entry) {
   const how = entry.container ? 'docker stop' : entry.unit ? `systemctl stop ${entry.unit.name}` : 'SIGTERM';
   return { ok: true, exited: true, how, demo: true };
 }
+
+// ---- disk zoo demo: fake folders, nothing is deleted ----
+
+const GB = 1e9, MB = 1e6, DAY = 86400000;
+const DISK_SEED = [
+  ['dir', 'code/old-landing/node_modules', 'node_modules', '📦', 'old-landing', 1.84 * GB, 241],
+  ['cache', 'Library/Developer/Xcode/DerivedData', 'Xcode DerivedData', '🔨', null, 6.2 * GB, null],
+  ['dir', 'code/shop/admin/node_modules', 'node_modules', '📦', 'admin-dashboard', 1.12 * GB, 0],
+  ['dir', 'code/shop/admin/.next', 'Next.js build', '▲', 'admin-dashboard', 640 * MB, 0],
+  ['dir', 'code/ingest-worker/target', 'Rust build', '🦀', 'ingest-worker', 3.9 * GB, 2],
+  ['dir', 'code/hackathon-2024/node_modules', 'node_modules', '📦', 'hackathon-2024', 980 * MB, 412],
+  ['dir', 'code/ml-api/.venv', 'virtualenv', '🐍', 'ml-api', 2.3 * GB, 1],
+  ['dir', 'notebooks/kaggle-titanic/.venv', 'virtualenv', '🐍', 'kaggle-titanic', 1.4 * GB, 530],
+  ['dir', 'code/rust-playground/target', 'Rust build', '🦀', 'rust-playground', 2.1 * GB, 188],
+  ['cache', '.npm/_cacache', 'npm cache', '📦', null, 1.7 * GB, null],
+  ['cache', 'Library/Caches/Homebrew', 'Homebrew cache', '🍺', null, 890 * MB, null],
+  ['cache', 'Library/Caches/pip', 'pip cache', '🐍', null, 760 * MB, null],
+  ['cache', '.cargo/registry', 'Cargo registry', '🦀', null, 1.1 * GB, null],
+];
+let diskItems = null;
+
+export function demoDisk() {
+  const now = Date.now();
+  diskItems ??= DISK_SEED.map(([type, rel, kind, icon, name, size, idle]) => ({
+    id: `${type}:${rel}`, path: `${home}/${rel}`, kind, icon, size: Math.round(size),
+    type: type === 'dir' ? 'project' : 'cache',
+    rebuild: type === 'dir' ? (kind === 'node_modules' ? 'npm install' : kind === 'virtualenv' ? 'python -m venv .venv' : kind === 'Rust build' ? 'cargo build' : 'next build') : 'refilled when the tool needs it',
+    project: name ? { root: `${home}/${rel.split('/').slice(0, -1).join('/')}`, name } : null,
+    touched: idle == null ? null : now - idle * DAY, idleDays: idle,
+  }));
+  if (!diskItems.length) { diskItems = null; return demoDisk(); } // everything cleaned: refill
+  const items = diskItems.slice().sort((a, b) => b.size - a.size);
+  return { home, platform: 'linux', scannedAt: now, demo: true, total: items.reduce((n, it) => n + it.size, 0), items,
+    docker: { size: 14.2 * GB, reclaimable: 9.8 * GB } };
+}
+
+export function demoClean(item, { force = false } = {}) {
+  diskItems = (diskItems || []).filter((it) => it.id !== item.id);
+  return { ok: true, how: force ? 'deleted' : 'trash', freed: item.size, demo: true };
+}

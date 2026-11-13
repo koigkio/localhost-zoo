@@ -6,6 +6,7 @@
 //  * Every mutating request needs a random per-run token (header), and a same-origin Origin.
 //  * When bound to a non-loopback address, *every* request needs the token.
 //  * Only entries from the latest scan can be stopped — never arbitrary PIDs, never the zoo itself.
+//  * Same for the disk zoo: only folders from the latest disk scan can be cleaned — never an arbitrary path.
 
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
@@ -15,7 +16,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { scan, findEntry } from './scan.js';
 import { stopEntry, entryLabel } from './kill.js';
-import { demoScan, demoKill } from './demo.js';
+import { demoScan, demoKill, demoDisk, demoClean } from './demo.js';
+import { scanDisk, cleanItem, findItem } from './disk.js';
 
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
@@ -49,6 +51,11 @@ export function createZoo({ host = '127.0.0.1', port = 4321, token = randomBytes
   let lastScan = { entries: [] };
   let scanning = null;
   const doScan = () => (scanning ??= (demo ? Promise.resolve(demoScan()) : scan()).then((r) => (lastScan = r)).finally(() => (scanning = null)));
+
+  // The disk scan walks the home folder, so it runs only when asked and is kept until the next refresh.
+  let lastDisk = null;
+  let diskScanning = null;
+  const doDisk = () => (diskScanning ??= (demo ? Promise.resolve(demoDisk()) : scanDisk()).then((r) => (lastDisk = r)).finally(() => (diskScanning = null)));
 
   const send = (res, code, body, type = 'application/json') => {
     res.writeHead(code, {
@@ -85,10 +92,35 @@ export function createZoo({ host = '127.0.0.1', port = 4321, token = randomBytes
         return send(res, 200, await doScan());
       }
 
-      if (req.method === 'POST' && url.pathname === '/api/kill') {
+      if (req.method === 'GET' && url.pathname === '/api/disk') {
+        if (url.searchParams.get('refresh') === '1' || !lastDisk) await doDisk();
+        return send(res, 200, lastDisk);
+      }
+
+      if (req.method === 'POST') {
         const origin = req.headers.origin;
         if (!safeEqual(req.headers['x-zoo-token'] || '', token)) return send(res, 403, { error: 'Bad token' });
         if (origin && !allowedHosts.has(hostOnly(new URL(origin).host))) return send(res, 403, { error: 'Bad origin' });
+      }
+
+      if (req.method === 'POST' && url.pathname === '/api/disk/clean') {
+        const body = await readJson(req);
+        const ids = Array.isArray(body.ids) ? body.ids.slice(0, 500) : [];
+        const results = [];
+        for (const id of ids) {
+          // Only folders from the latest disk scan — never an arbitrary path.
+          const item = lastDisk && findItem(lastDisk.items, String(id));
+          if (!item) { results.push({ id, ok: false, error: 'Not in the current disk scan. Rescan and try again.' }); continue; }
+          const r = demo ? demoClean(item, { force: !!body.force }) : await cleanItem(item, { force: !!body.force });
+          if (r.ok) lastDisk.items = lastDisk.items.filter((it) => it !== item);
+          results.push({ id, ...r });
+        }
+        if (lastDisk) lastDisk.total = lastDisk.items.reduce((n, it) => n + it.size, 0);
+        const freed = results.reduce((n, r) => n + (r.ok ? r.freed || 0 : 0), 0);
+        return send(res, 200, { results, freed, total: lastDisk?.total ?? 0 });
+      }
+
+      if (req.method === 'POST' && url.pathname === '/api/kill') {
 
         const body = await readJson(req);
         // Only entries from the latest scan can be stopped — never an arbitrary PID.
@@ -118,7 +150,7 @@ export function createZoo({ host = '127.0.0.1', port = 4321, token = randomBytes
 function readJson(req) {
   return new Promise((resolve, reject) => {
     let data = '';
-    req.on('data', (c) => { data += c; if (data.length > 4096) req.destroy(); });
+    req.on('data', (c) => { data += c; if (data.length > 65536) req.destroy(); });
     req.on('end', () => { try { resolve(JSON.parse(data || '{}')); } catch { reject(new Error('Bad JSON')); } });
     req.on('error', reject);
   });

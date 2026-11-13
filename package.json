@@ -1,7 +1,7 @@
 {
   "name": "localhost-zoo",
   "version": "1.2.0",
-  "description": "Every dev server on your machine in one live dashboard, terminal UI, Telegram bot and MCP server — see what is open to the internet and how to fix it.",
+  "description": "Every dev server on your machine in one live dashboard, terminal UI, Telegram bot and MCP server — see what is open to the internet and how to fix it. Plus a disk zoo: node_modules, venvs, builds and caches eating your disk.",
   "type": "module",
   "bin": {
     "localhost-zoo": "bin/localhost-zoo.js",
@@ -34,7 +34,10 @@
     "security",
     "telegram",
     "telegram-bot",
-    "systemd"
+    "systemd",
+    "node-modules",
+    "disk-cleanup",
+    "cache"
   ],
   "license": "MIT",
   "repository": {

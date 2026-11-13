@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Disk zoo** (`zoo disk`, and a Disk tab in the dashboard): finds `node_modules`, virtualenvs, Rust `target`, `.next` and other build folders in your projects, plus the caches of npm, Yarn, pnpm, Bun, pip, Poetry, uv, Homebrew, Cargo, Go, Gradle, Maven and Xcode. Shows the size and how long each project has been idle, and moves what you pick to the Trash. `zoo disk clean --older 90` picks every project folder untouched for 90+ days. Only folders that can be rebuilt are ever listed, and only those from the latest scan can be cleaned.
+
 ## 1.2.0 — 2026-11-07
 
 - **Telegram bot** (`zoo telegram`): every process in a chat, with details, fixes and Stop buttons. Setup asks for a BotFather token (hidden input, saved with `chmod 600`) and pairs the bot to one owner with a one-time code; everyone else is turned away. `zoo telegram service` prints a systemd unit to keep it running.
